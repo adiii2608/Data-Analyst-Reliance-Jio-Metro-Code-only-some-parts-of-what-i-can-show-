@@ -1,0 +1,958 @@
+lat long to geohash converter and geohash to station mapping (union table)
+import org.apache.spark.sql.{SparkSession, DataFrame}
+import scala.collection.mutable.ListBuffer
+
+// Constants
+val base32 = "0123456789bcdefghjkmnpqrstuvwxyz"
+val earthRadiusKm = 6371.0
+
+// Function to convert degrees to radians
+def degToRad(deg: Double): Double = deg * Math.PI / 180.0
+
+// Function to   radians to degrees
+def radToDeg(rad: Double): Double = rad * 180.0 / Math.PI
+
+// Haversine formula to calculate the distance between two points on the Earth's surface
+def haversine(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double = {
+  val dLat = degToRad(lat2 - lat1)
+  val dLon = degToRad(lon2 - lon1)
+  val a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(degToRad(lat1)) * Math.cos(degToRad(lat2)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2)
+  val c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  earthRadiusKm * c
+}
+
+// Function to calculate new latitude and longitude given a distance and bearing
+def calculateNewCoordinates(lat: Double, lon: Double, distanceKm: Double, bearingDegrees: Double): (Double, Double) = {
+  val bearing = degToRad(bearingDegrees)
+  val latRad = degToRad(lat)
+  val lonRad = degToRad(lon)
+
+  val newLatRad = Math.asin(Math.sin(latRad) * Math.cos(distanceKm / earthRadiusKm) +
+    Math.cos(latRad) * Math.sin(distanceKm / earthRadiusKm) * Math.cos(bearing))
+  val newLonRad = lonRad + Math.atan2(Math.sin(bearing) * Math.sin(distanceKm / earthRadiusKm) * Math.cos(latRad),
+    Math.cos(distanceKm / earthRadiusKm) - Math.sin(latRad) * Math.sin(newLatRad))
+
+  (radToDeg(newLatRad), radToDeg(newLonRad))
+}
+
+// Function to encode a latitude and longitude into a geohash
+def encodeGeohash(latitude: Double, longitude: Double, precision: Int): String = {
+  var latMin = -90.0
+  var latMax = 90.0
+  var lonMin = -180.0
+  var lonMax = 180.0
+  val geohash = new StringBuilder()
+  var isEven = true
+  var bit = 0
+  var ch = 0
+
+  while (geohash.length < precision) {
+    if (isEven) {
+      val mid = (lonMin + lonMax) / 2
+      if (longitude > mid) {
+        ch |= (1 << (4 - bit))
+        lonMin = mid
+      } else {
+        lonMax = mid
+      }
+    } else {
+      val mid = (latMin + latMax) / 2
+      if (latitude > mid) {
+        ch |= (1 << (4 - bit))
+        latMin = mid
+      } else {
+        latMax = mid
+      }
+    }
+    isEven = !isEven
+    if (bit < 4) {
+      bit += 1
+    } else {
+      geohash.append(base32.charAt(ch))
+      bit = 0
+      ch = 0
+    }
+  }
+  geohash.toString()
+}
+
+
+// Function to generate geohashes within a bounding box and filter by distance
+def geohashesInBoundingBox(lat: Double, lon: Double, precision: Int, distanceKm: Double): List[String] = {
+  val northWest = calculateNewCoordinates(lat, lon, distanceKm, 315) // NW
+  val southEast = calculateNewCoordinates(lat, lon, distanceKm, 135) // SE
+
+  val latMin = southEast._1
+  val latMax = northWest._1
+  val lonMin = northWest._2
+  val lonMax = southEast._2
+
+  val geohashes = ListBuffer[String]()
+
+  val stepSize = 0.0001 // Adjust step size for better coverage
+
+  var latVal = latMin
+  while (latVal <= latMax) {
+    var lonVal = lonMin
+    while (lonVal <= lonMax) {
+      val geohash = encodeGeohash(latVal, lonVal, precision)
+      if (haversine(lat, lon, latVal, lonVal) <= distanceKm) {
+        geohashes += geohash
+      }
+      lonVal += stepSize
+    }
+    latVal += stepSize
+  }
+
+  geohashes.toList.distinct
+}
+
+
+
+
+
+// val geohashList=geohashesInBoundingBox(lat,lon,precision,distanceKm)
+//FUNCTION CALL FOR KALYAN APMC
+val lat=19.234956  
+val lon=73.121778
+val precision=7
+val distanceKm=5
+val geohashList=geohashesInBoundingBox(lat,lon,precision,distanceKm)
+val geohash_kalyanAPMC=geohashList.toDF("geohashid").withColumn("station",lit("KalyanAPMC"))
+
+//FUNCTION CALL FOR KALYAN
+val lat=19.236501 
+val lon=73.129375
+val precision=7
+val distanceKm=5
+val geohashList=geohashesInBoundingBox(lat,lon,precision,distanceKm)
+val geohash_KALYAN=geohashList.toDF("geohashid").withColumn("station",lit("Kalyan"))
+//FUNCTION CALL FOR GANESH NAGAR (KALYAN)
+val lat=19.223599  
+val lon=73.139877
+val precision=7
+val distanceKm=5
+val geohashList=geohashesInBoundingBox(lat,lon,precision,distanceKm)
+val geohash_ganeshnagar=geohashList.toDF("geohashid").withColumn("station",lit("GaneshNagar"))
+//FUNCTION CALL FOR PISAVALI
+val lat=19.216139 
+val lon=73.121953
+val precision=7
+val distanceKm=5
+val geohashList=geohashesInBoundingBox(lat,lon,precision,distanceKm)
+val geohash_pisavali=geohashList.toDF("geohashid").withColumn("station",lit("Pisavali"))
+//FUNCTION CALL FOR GOLAVALI
+val lat=19.210681  
+val lon=73.112832
+val precision=7
+val distanceKm=5
+val geohashList=geohashesInBoundingBox(lat,lon,precision,distanceKm)
+val geohash_golavali=geohashList.toDF("geohashid").withColumn("station",lit("golavali"))
+//FUNCTION CALL FOR DOMBIVALI MIDC
+val lat=19.201354  
+val lon=73.103210
+val precision=7
+val distanceKm=5
+val geohashList=geohashesInBoundingBox(lat,lon,precision,distanceKm)
+val geohash_dombivali_midc=geohashList.toDF("geohashid").withColumn("station",lit("dombivali_midc"))
+//FUNCTION CALL FOR SAGAON
+val lat=19.192908  
+val lon=73.096397
+val precision=7
+val distanceKm=5
+val geohashList=geohashesInBoundingBox(lat,lon,precision,distanceKm)
+val geohash_sagaon=geohashList.toDF("geohashid").withColumn("station",lit("sagaon"))
+//FUNCTION CALL FOR SONARPADA 
+val lat=19.181671  
+val lon=73.089304
+val precision=7
+val distanceKm=5
+val geohashList=geohashesInBoundingBox(lat,lon,precision,distanceKm)
+val geohash_sonarpada=geohashList.toDF("geohashid").withColumn("station",lit("sonarpada"))
+//FUNCTION CALL FOR MANPADA
+val lat=19.186466
+val lon=73.091659
+val precision=7
+val distanceKm=5
+val geohashList=geohashesInBoundingBox(lat,lon,precision,distanceKm)
+val geohash_manpada=geohashList.toDF("geohashid").withColumn("station",lit("manpada"))
+//FUNCTION CALL FOR HEDUTANE PALAVA
+val lat=19.172908
+val lon=73.100669
+val precision=7
+val distanceKm=5
+val geohashList=geohashesInBoundingBox(lat,lon,precision,distanceKm)
+val geohash_hedutane=geohashList.toDF("geohashid").withColumn("station",lit("palava"))
+//FUNCTION CALL FOR KOLEGAON
+val lat=19.171308
+val lon=73.087069
+val precision=7
+val distanceKm=5
+val geohashList=geohashesInBoundingBox(lat,lon,precision,distanceKm)
+val geohash_kolegaon=geohashList.toDF("geohashid").withColumn("station",lit("kolegaon"))
+//FUNCTION CALL FOR NILJE GAON 
+val lat=19.154718
+val lon=73.084982
+val precision=7
+val distanceKm=5
+val geohashList=geohashesInBoundingBox(lat,lon,precision,distanceKm)
+val geohash_niljegaon=geohashList.toDF("geohashid").withColumn("station",lit("niljegaon"))
+//FUNCTION CALL FOR VADAVALI
+val lat=19.143143
+val lon=73.087738
+val precision=7
+val distanceKm=5
+val geohashList=geohashesInBoundingBox(lat,lon,precision,distanceKm)
+val geohash_vadavali=geohashList.toDF("geohashid").withColumn("station",lit("vadavali"))
+//FUNCTION CALL FOR BALE 
+val lat=19.134511
+val lon=73.100456
+val precision=7
+val distanceKm=5
+val geohashList=geohashesInBoundingBox(lat,lon,precision,distanceKm)
+val geohash_bale=geohashList.toDF("geohashid").withColumn("station",lit("bale"))
+//FUNCTION CALL FOR WALKAN
+val lat=19.120226
+val lon=73.096423
+val precision=7
+val distanceKm=5
+val geohashList=geohashesInBoundingBox(lat,lon,precision,distanceKm)
+val geohash_walkan=geohashList.toDF("geohashid").withColumn("station",lit("walkan"))
+//FUNCTION CALL FOR TURBHE
+val lat=19.109384
+val lon=73.094146
+val precision=7
+val distanceKm=5
+val geohashList=geohashesInBoundingBox(lat,lon,precision,distanceKm)
+val geohash_turbhe=geohashList.toDF("geohashid").withColumn("station",lit("turbhe"))
+//FUNCTION CALL FOR PISARVE DEPOT
+val lat=19.091195  
+val lon=73.088754
+val precision=7
+val distanceKm=5
+val geohashList=geohashesInBoundingBox(lat,lon,precision,distanceKm)
+val geohash_Pisarve=geohashList.toDF("geohashid").withColumn("station",lit("pisarve"))
+//FUNCTION CALL FOR AMANDOOT TALOJA
+val lat=19.073913  
+val lon=73.081898
+val precision=7
+val distanceKm=5
+val geohashList=geohashesInBoundingBox(lat,lon,precision,distanceKm)
+val geohash_Taloja=geohashList.toDF("geohashid").withColumn("station",lit("taloja"))
+
+
+print("LIST CREATED")
+
+val union ={geohash_kalyanAPMC
+            .union(geohash_KALYAN)
+            .union(geohash_ganeshnagar)
+            .union(geohash_pisavali)
+            .union(geohash_golavali)
+            .union(geohash_dombivali_midc)
+            .union(geohash_sagaon)
+            .union(geohash_sonarpada)
+            .union(geohash_manpada)
+            .union(geohash_hedutane)
+            .union(geohash_kolegaon)
+            .union(geohash_niljegaon)
+            .union(geohash_vadavali)
+            .union(geohash_bale)
+            .union(geohash_walkan)
+            .union(geohash_turbhe)
+            .union(geohash_Pisarve)
+            .union(geohash_Taloja)
+          }.distinct()
+
+import org.apache.spark.sql.expressions.Window
+
+val w2 = Window.partitionBy("geohashid").orderBy($"station")
+
+val nearest_station ={
+union
+.withColumn("rn",row_number().over(w2))
+.filter($"rn"===1)
+.select("geohashid","station")}
+
+
+
+// import org.apache.spark.sql.functions._
+
+// val geohash_to_lat = udf((gh: String) => {
+//   val lat = gh.hashCode % 90
+//   lat.toDouble
+// })
+
+// val geohash_to_lon = udf((gh: String) => {
+//   val lon = gh.hashCode % 180
+//   lon.toDouble
+// })
+
+
+// // val w= Window.partitionBy("geohashid").orderBy("station")
+
+// // val union_fixed={union.withColumn("rn",row_number().over(w))
+// //                 .filter($"rn"=== 1)
+// //                 .drop("rn")}
+// //add seq here
+// import spark.implicits._
+
+// val stations = {Seq(
+// ("KalyanAPMC",19.234956,73.121778),
+// ("Kalyan",19.236501,73.129375),
+// ("GaneshNagar",19.223599,73.139877),
+// ("Pisavali",19.216139,73.121953),
+// ("golavali",19.210681,73.112832),
+// ("dombivali_midc",19.201354,73.103210),
+// ("sagaon",19.192908,73.096397),
+// ("sonarpada",19.181671,73.089304),
+// ("manpada",19.186466,73.091659),
+// ("palava",19.172908,73.100669),
+// ("kolegaon",19.171308,73.087069),
+// ("niljegaon",19.154718,73.084982),
+// ("vadavali",19.143143,73.087738),
+// ("bale",19.134511,73.100456),
+// ("walkan",19.120226,73.096423),
+// ("turbhe",19.109384,73.094146),
+// ("pisarve",19.091195,73.088754),
+// ("taloja",19.073913,73.081898)
+// ).toDF("station","lat","lon")}
+
+// //split coordinates 
+// val union_with_coords ={
+// union
+// .withColumnRenamed("station","station_origin")
+// .withColumn("grid_lat", geohash_to_lat($"geohashid"))
+// .withColumn("grid_lon", geohash_to_lon($"geohashid"))}
+// //.drop("coords")
+
+// //haversine
+// val haversineUDF = udf((lat1:Double,lon1:Double,lat2:Double,lon2:Double)=>{
+// haversine(lat1,lon1,lat2,lon2)
+// })
+// val distance_table ={
+// union_with_coords
+// .crossJoin(stations)
+// .withColumn(
+// "distance",
+// haversineUDF($"grid_lat",$"grid_lon",$"lat",$"lon")
+
+// )}
+
+// import org.apache.spark.sql.expressions.Window
+
+// val w2 = Window.partitionBy("geohashid").orderBy($"distance".asc)
+
+// val nearest_station ={
+// distance_table
+// .withColumn("rn",row_number().over(w2))
+// .filter($"rn"===1)
+// .select("geohashid","station")}
+
+
+
+
+val static=spark.table("network.pan_india_static_grid_data_csv").filter($"hway"===1).select("geohashid","hway")
+val union_static={static
+                  //.join(union,Seq("geohashid"),"inner")
+                  .join(nearest_station,Seq("geohashid"),"inner")
+.select("geohashid","hway","station")
+.repartition(100)
+.persist()
+//.drop("geohashid")
+}
+union_static.filter($"imsi"==="405864093408538").show(false)
+//union_static.repartition(100).write.mode("overwrite").option("header","true").saveAsTable("network_dev.union_adi")
+
+
+//imsi to route mapping 
+val raw2={spark.table("network_dev.jan5_adi")
+
+    .union(
+      spark.table("network_dev.jan6_adi")
+    )
+    .union(
+      spark.table("network_dev.jan7_adi")
+    )
+    .union(
+      spark.table("network_dev.jan8_adi")
+  )
+    .union(
+      spark.table("network_dev.jan9_adi")
+ )
+    .union(
+      spark.table("network_dev.jan10_adi")
+ )
+
+    .union(
+      spark.table("network_dev.jan11_adi")
+ )
+         }
+
+    
+val route_geohashes ={
+  broadcast(
+    spark.table("network_dev.union_adi")
+      .filter(col("hway") === 1)
+      .select("geohashid","station")
+      .distinct()
+  )}
+
+val imsi_route ={
+  raw2
+    .join(broadcast(route_geohashes), Seq("geohashid"), "inner")}
+
+
+val traffic ={
+  spark.read
+    .option("header","true")
+    .csv("/user/Archana.Bhoye/kalyan_taloja.csv")
+    //.select("day","hour","road_duration_min")
+}
+
+val traffic_s=traffic.select("day","hour","road_duration_min")
+
+val imsi_route_traffic ={
+  imsi_route
+    .join(broadcast(traffic_s), Seq("day","hour"), "left")
+    }
+
+// {imsi_route_traffic.repartition(100).write.mode("append").option("header","true").saveAsTable("network_dev.imsi_route")}
+
+
+imsi_route_traffic.printSchema()
+
+
+old 1st features 
+val finalc=spark.table("network_dev.imsi_route")
+val labeled_data={finalc
+                  .withColumn("imsi", concat(lit("`"),col("imsi").cast("string")))
+                     .groupBy($"imsi",$"station")
+                     .agg(
+                          avg($"road_duration_min").alias("avg_road_duration"),
+                          max($"road_duration_min").cast("double").alias("max_road_duration"),
+                          count("*").alias("total_pings"),
+                          countDistinct($"day").cast("int").alias("active_days"),
+                          avg(when(col("hour").between(7,10),1).otherwise(0)).cast("double").alias("morning_peak_ratio"),
+                          avg(when(col("hour").between(18,20),1).otherwise(0)).cast("double").alias("evening_peak_ratio"),
+                          avg(when(col("road_duration_min") >= 50,1).otherwise(0)).cast("double").alias("delay_exposure_ratio")   
+                  )
+                  
+                      // .withColumn(
+                      //     "label",
+                      //     when(
+                      //         $"active_days" >= 4 &&
+                      //         $"delay_exposure_ratio" > 0.5 &&
+                      //         $"morning_peak_ratio" > 0.4,
+                      //         1
+                      //     ).otherwise(0)
+                      }
+
+val clean_label={ labeled_data
+                .na.fill(Map(
+                    "avg_road_duration" -> 0.0,
+                    "max_road_duration" -> 0.0,
+                    "active_days" -> 0,
+                    "morning_peak_ratio" -> 0.0,
+                    "evening_peak_ratio" -> 0.0,
+                    "delay_exposure_ratio" -> 0.0
+                    ))}
+                        
+//clean_label.repartition(1).write.mode("append").option("header","true").csv("old_features_adi_9march")
+
+
+device features 
+val raw_cost = {spark.table("network.nmhc_user_level_daily_po")
+  .filter($"partition_date".between("2026-01-05","2026-01-11") && $"circle_code" === "MH")
+  .withColumn("imsi", concat(lit("`"), col("imsi").cast("string")))
+  .select("imsi","device_brand","model_name","price_range")}
+
+
+// Step 2: Create price_score (CORRECTED mapping)
+val device_with_price_score = {raw_cost
+  .withColumn(
+    "price_score",
+    when(col("price_range") === "< 7k", 1)
+    .when(col("price_range") === "7 to 10k", 2)
+    .when(col("price_range") === "10 to 15k", 3)
+    .when(col("price_range") === "15 to 20k", 4)
+    .when(col("price_range") === "20 to 30k", 5)
+    .when(col("price_range") === "30 to 50k", 6)
+    .when(col("price_range") === "> 50k", 7)
+    .otherwise(0)
+  )
+                              }
+
+// Step 3: Premium flag (fixed syntax)
+val device_with_premium_flag = {device_with_price_score
+  .withColumn(
+    "premium_flag",
+    when(col("price_score") >= 6, 1).otherwise(0)
+  )
+                               }
+
+// Step 4: Brand tier classification (connected correctly)
+val device_with_brand_tier = {device_with_premium_flag
+  .withColumn(
+    "brand_tier",
+    when(col("model_name") === "iPhone 16 Pro Max", 3)
+    .when(col("model_name") === "Mi 11 Ultra", 3)
+    .when(col("model_name") === "SM-A346B/DSN", 3)
+    .when(col("model_name") === "Samsung SM-G610F/DS", 3)
+
+    .when(col("model_name") === "Moto E3 Power [XT1706(Tido-M)]", 2)
+    .when(col("model_name") === "Y200 Pro 5G", 2)
+    .when(col("model_name") === "Zenfone 3 ZE520KL (Leo)", 2)
+    .when(col("model_name") === "Nokia 5.4", 2)
+    .when(col("model_name") === "V3 Pro", 2)
+    .when(col("model_name") === "A23", 2)
+    .when(col("model_name") === "SM-A166W", 2)
+
+    .when(col("model_name") === "V60e", 1)
+    .when(col("model_name") === "CPH2557", 1)
+    .when(col("model_name") === "HD1903", 1)
+    .when(col("model_name") === "M804C3CE", 1)
+    .when(col("model_name") === "mobistar ENJOY MORE X1 Selfie", 1)
+    .when(col("model_name") === "GT-S7262", 1)
+    .when(col("model_name") === "A6010", 1)
+    .when(col("model_name") === "M1908C3JH", 1)
+    .when(col("model_name") === "V2419A", 1)
+
+    .otherwise(1)
+  )
+                             }
+
+// Step 5: Extract model year if present
+val device_with_year = {device_with_brand_tier
+  .withColumn(
+    "model_year",
+    regexp_extract(col("model_name"), "(20[0-9]{2})", 1).cast("int")
+  )
+                       }
+
+// Step 6: Device age
+val current_year = 2026
+
+val device_features = {device_with_year
+  .withColumn(
+    "device_age",
+    when(col("model_year").isNotNull, lit(current_year) - col("model_year"))
+      .otherwise(0)
+  )
+
+                      }
+// Step 7: Final feature selection
+val final_device_features = {device_features
+  .select(
+    "imsi",
+    "price_score",
+    "premium_flag",
+    "brand_tier",
+    "device_age"
+  )
+                            }
+//final_device_features.filter($"premium_flag">0 && $"device_age">0).show(30,false)
+// Step 8: Save table
+{final_device_features.repartition(100).write.mode("overwrite").option("header","true").saveAsTable("network_dev.device_engineered_features")}
+
+home, office geohash features
+
+import org.apache.spark.sql.expressions.Window
+import org.apache.spark.ml.feature.VectorAssembler
+import org.apache.spark.ml.classification.GBTClassifier
+import org.apache.spark.sql.functions._
+import org.apache.spark.ml.linalg.Vector
+import org.apache.spark.sql.functions.udf
+
+val raw2={spark.table("network_dev.5th_dec_road")
+
+    .union(
+      spark.table("network_dev.jan6_adi")
+    )
+    .union(
+      spark.table("network_dev.jan7_adi")
+    )
+    .union(
+      spark.table("network_dev.jan8_adi")
+  )
+    .union(
+      spark.table("network_dev.jan9_adi")
+ )}
+
+val time_windowed={
+
+    raw2.withColumn(
+        "time_window",
+        when(col("hour").between(0,5),"home")
+        .when(col("hour").between(9,18),"office")
+        .otherwise("other")
+
+    )
+}
+
+val grid_day_counts={
+    time_windowed.filter($"time_window".isin("home","office"))
+    .groupBy($"imsi",$"geohashid",$"time_window")
+    .agg(countDistinct("partition_date").alias("days_present"))
+}
+
+val w=Window.partitionBy($"imsi",$"time_window").orderBy(desc("days_present"))
+
+val dominant_grids={grid_day_counts
+                    .withColumn("rn",row_number().over(w))
+                    .filter(col("rn")===1)
+                
+                    .drop("rn")
+                   }
+
+//
+
+val routine_features ={
+  dominant_grids
+     .withColumn("imsi", concat(lit("`"),col("imsi").cast("string")))
+    .groupBy("imsi")
+    .pivot("time_window")
+    .agg(
+      first("geohashid").alias("grid"),
+      first("days_present").alias("days")
+    )
+    .withColumnRenamed("home_grid","home_geohash")
+    .withColumnRenamed("office_grid","office_geohash")
+    .withColumnRenamed("home_days","home_days")
+    .withColumnRenamed("office_days","office_days")
+    .withColumn(
+      "routine_strength",
+      col("office_days") / (col("home_days") + col("office_days"))
+    )
+    .withColumn(
+      "regular_commuter_flag",
+      when(col("office_days") >= 3, 1).otherwise(0)
+    )
+    .filter($"home_days" >= 2)
+
+}
+
+features check and joining
+
+val traffic_features={spark.read.option("header","true").csv("/user/Archana.Bhoye/old_features_9march.csv")
+ .withColumn("imsi",col("imsi").cast("string"))
+    .withColumn("avg_road_duration", col("avg_road_duration").cast("double"))
+    .withColumn("max_road_duration", col("max_road_duration").cast("double"))
+    .withColumn("morning_peak_ratio", col("morning_peak_ratio").cast("double"))
+    .withColumn("evening_peak_ratio", col("evening_peak_ratio").cast("double"))
+    .withColumn("delay_exposure_ratio", col("delay_exposure_ratio").cast("double"))
+    .withColumn("active_days", col("active_days").cast("int"))
+}
+//traffic_features.show(5,false)
+val device = spark.table("network_dev.device_engineered_features")
+val combined_features ={
+  traffic_features
+    .join(routine_features, Seq("imsi"), "left")
+    .join(device,Seq("imsi"),"left") 
+    .na.fill(0)
+}
+
+
+val labeled_data ={
+  combined_features.withColumn(
+    "label",
+    when(
+      col("active_days") >= 3 &&(
+        
+      col("delay_exposure_ratio") > 0.4 ||
+      col("routine_strength") > 0.4
+      ),1).otherwise(0)
+  )}
+HOME GEOHASH STATION MAPPING 
+import org.apache.spark.sql.functions.broadcast
+
+val features_master = spark.table("network_dev.features_master_vf")
+
+val corridor_grids ={
+spark.table("network_dev.union_adi")
+.select(
+    col("geohashid"),
+    col("station").alias("corridor_station")
+)}
+
+val corridor_features ={
+features_master
+.join(
+    broadcast(corridor_grids),
+    features_master("home_geohash") === corridor_grids("geohashid"),
+    "inner"
+)
+.drop("station")
+.withColumnRenamed("corridor_station","station")
+.drop("geohashid")}
+
+corridor_features.show(10,false)
+
+corridor_features.repartition(100).write.mode("append").option("header","true").saveAsTable("network_dev.features_master_v13march")
+
+ML STARTS 
+import org.apache.spark.sql.expressions.Window
+import org.apache.spark.ml.feature.VectorAssembler
+import org.apache.spark.ml.classification.GBTClassifier
+import org.apache.spark.sql.functions._
+import org.apache.spark.ml.linalg.Vector
+import org.apache.spark.sql.functions.udf
+
+val assembler ={
+  new VectorAssembler()
+    .setInputCols(Array(
+      "avg_road_duration",
+      "max_road_duration",
+      "morning_peak_ratio",
+      "evening_peak_ratio",
+      //"delay_exposure_ratio",
+      //"active_days",
+      "office_days",
+      "home_days",
+      //"routine_strength",
+      "regular_commuter_flag",
+        "price_score",
+        "premium_flag",
+        "brand_tier",
+        "device_age"
+    ))
+    .setOutputCol("features")
+}
+val labeled_data_master={spark.table("network_dev.features_master_v13march")
+    .withColumn("imsi", col("imsi").cast("string"))
+  .withColumn("station", col("station").cast("string"))
+  .withColumn("avg_road_duration", col("avg_road_duration").cast("double"))
+  .withColumn("max_road_duration", col("max_road_duration").cast("double"))
+  .withColumn("morning_peak_ratio", col("morning_peak_ratio").cast("double"))
+  .withColumn("evening_peak_ratio", col("evening_peak_ratio").cast("double"))
+  .withColumn("delay_exposure_ratio", col("delay_exposure_ratio").cast("double"))
+  .withColumn("active_days", col("active_days").cast("int"))
+  .withColumn("office_days", col("office_days").cast("int"))
+  .withColumn("home_days", col("home_days").cast("int"))
+  .withColumn("routine_strength", col("routine_strength").cast("double"))
+  .withColumn("regular_commuter_flag", col("regular_commuter_flag").cast("int"))
+  .withColumn("price_score", col("price_score").cast("int"))
+  .withColumn("premium_flag", col("premium_flag").cast("int"))
+  .withColumn("brand_tier", col("brand_tier").cast("int"))
+  .withColumn("device_age", col("device_age").cast("int"))
+  .withColumn("label", col("label").cast("int"))}
+val ml_ready ={
+  assembler.transform(labeled_data_master)
+    .select("imsi","station","features","label")}
+val Array(trainDF, testDF) = ml_ready.randomSplit(Array(0.8,0.2), seed = 42)
+
+import org.apache.spark.ml.classification.{GBTClassifier, GBTClassificationModel}
+import org.apache.spark.ml.tuning.{CrossValidator, ParamGridBuilder}
+import org.apache.spark.ml.evaluation.{BinaryClassificationEvaluator, MulticlassClassificationEvaluator}
+import org.apache.spark.sql.functions._
+import org.apache.spark.ml.linalg.Vector
+
+// ===============================
+// GBT BASE MODEL
+// ===============================
+
+val gbt = {new GBTClassifier()
+  .setLabelCol("label")
+  .setFeaturesCol("features")
+    .setMaxBins(32)}
+import org.apache.spark.ml.classification.{GBTClassifier, GBTClassificationModel}
+import org.apache.spark.ml.tuning.{CrossValidator, ParamGridBuilder}
+import org.apache.spark.ml.evaluation.{BinaryClassificationEvaluator, MulticlassClassificationEvaluator}
+import org.apache.spark.sql.functions._
+import org.apache.spark.ml.linalg.Vector
+import org.apache.spark.ml.tuning.TrainValidationSplit 
+
+
+// ===============================
+// HYPERPARAMETER GRID
+// ===============================
+
+val paramGrid = {new ParamGridBuilder()
+  .addGrid(gbt.maxDepth, Array(3,4))
+  .addGrid(gbt.maxIter, Array(20))
+  .addGrid(gbt.stepSize, Array(0.1))
+  //.addGrid(gbt.subsamplingRate, Array(0.7,0.8))
+  .build()
+}
+import org.apache.spark.ml.classification.{GBTClassifier, GBTClassificationModel}
+import org.apache.spark.ml.tuning.{CrossValidator, ParamGridBuilder}
+import org.apache.spark.ml.evaluation.{BinaryClassificationEvaluator, MulticlassClassificationEvaluator}
+import org.apache.spark.sql.functions._
+import org.apache.spark.ml.linalg.Vector
+// // ===============================
+// // AUC EVALUATOR (FOR CV)
+// // ===============================
+
+val aucEvaluator = {new BinaryClassificationEvaluator()
+  .setLabelCol("label")
+  .setRawPredictionCol("rawPrediction")
+  .setMetricName("areaUnderROC")}
+import org.apache.spark.ml.classification.{GBTClassifier, GBTClassificationModel}
+import org.apache.spark.ml.tuning.{CrossValidator, ParamGridBuilder}
+import org.apache.spark.ml.evaluation.{BinaryClassificationEvaluator, MulticlassClassificationEvaluator}
+import org.apache.spark.sql.functions._
+import org.apache.spark.ml.linalg.Vector
+import org.apache.spark.ml.tuning.TrainValidationSplit 
+
+// // ===============================
+// // CROSS VALIDATOR
+// // ===============================
+val tvs={new TrainValidationSplit()
+.setEstimator(gbt)
+.setEvaluator(aucEvaluator)
+.setEstimatorParamMaps(paramGrid)
+.setTrainRatio(0.8)
+.setParallelism(2)}
+import org.apache.spark.ml.classification.{GBTClassifier, GBTClassificationModel}
+import org.apache.spark.ml.tuning.{CrossValidator, ParamGridBuilder}
+import org.apache.spark.ml.evaluation.{BinaryClassificationEvaluator, MulticlassClassificationEvaluator}
+import org.apache.spark.sql.functions._
+import org.apache.spark.ml.linalg.Vector
+import org.apache.spark.ml.tuning.TrainValidationSplit 
+
+// // ===============================
+// // TRAIN MODEL WITH CV
+// // ===============================
+
+// val cvModel = crossval.fit(trainDF)
+
+// val bestModel = cvModel.bestModel.asInstanceOf[GBTClassificationModel]
+val tvsModel=tvs.fit(trainDF)
+val bestModel=tvsModel.bestModel
+
+import org.apache.spark.ml.classification.{GBTClassifier, GBTClassificationModel}
+import org.apache.spark.ml.tuning.{CrossValidator, ParamGridBuilder}
+import org.apache.spark.ml.evaluation.{BinaryClassificationEvaluator, MulticlassClassificationEvaluator}
+import org.apache.spark.sql.functions._
+import org.apache.spark.ml.linalg.Vector
+import org.apache.spark.ml.tuning.TrainValidationSplit 
+    
+// // ===============================
+// // TEST SET PREDICTIONS
+// // ===============================
+
+val full_predicitions=bestModel.transform(testDF)
+import org.apache.spark.ml.classification.{GBTClassifier, GBTClassificationModel}
+import org.apache.spark.ml.tuning.{CrossValidator, ParamGridBuilder}
+import org.apache.spark.ml.evaluation.{BinaryClassificationEvaluator, MulticlassClassificationEvaluator}
+import org.apache.spark.sql.functions._
+import org.apache.spark.ml.linalg.Vector
+
+// // ===============================
+// // EVALUATION METRICS
+// // ===============================
+
+// // AUC
+val auc = aucEvaluator.evaluate(full_predicitions)
+println("Test AUC = " + auc)
+
+// Accuracy
+val accuracyEvaluator = {new MulticlassClassificationEvaluator()
+  .setLabelCol("label")
+  .setPredictionCol("prediction")
+  .setMetricName("accuracy")}
+
+val accuracy = accuracyEvaluator.evaluate(full_predicitions)
+println("Test Accuracy = " + accuracy)
+
+// Precision
+val precisionEvaluator = {new MulticlassClassificationEvaluator()
+  .setLabelCol("label")
+  .setPredictionCol("prediction")
+  .setMetricName("weightedPrecision")}
+
+val precision = precisionEvaluator.evaluate(full_predicitions)
+println("Test Precision = " + precision)
+
+// Recall
+val recallEvaluator = {new MulticlassClassificationEvaluator()
+  .setLabelCol("label")
+  .setPredictionCol("prediction")
+  .setMetricName("weightedRecall")}
+
+val recall = recallEvaluator.evaluate(full_predicitions)
+println("Test Recall = " + recall)
+
+// F1 Score
+val f1Evaluator = {new MulticlassClassificationEvaluator()
+  .setLabelCol("label")
+  .setPredictionCol("prediction")
+  .setMetricName("f1")}
+
+val f1 = f1Evaluator.evaluate(full_predicitions)
+println("Test F1 Score = " + f1)
+
+// Confusion Matrix
+println("Confusion Matrix:")
+full_predicitions.groupBy("label","prediction").count().show()
+
+// ===============================
+// OVERFITTING CHECK
+// ===============================
+
+val train_predictions = bestModel.transform(trainDF)
+
+val train_auc = aucEvaluator.evaluate(train_predictions)
+println("Train AUC = " + train_auc)
+println("Test AUC  = " + auc)
+ results
+auc: Double = 0.9530391638701299
+Test AUC = 0.9530391638701299
+accuracyEvaluator: org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator = mcEval_9669fb016b60
+accuracy: Double = 0.8862139243731121
+Test Accuracy = 0.8862139243731121
+precisionEvaluator: org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator = mcEval_866d385eced6
+precision: Double = 0.8866599861098663
+Test Precision = 0.8866599861098663
+recallEvaluator: org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator = mcEval_e89c0c018aa2
+recall: Double = 0.8862139243731121
+Test Recall = 0.8862139243731121
+f1Evaluator: org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator = mcEval_92a4a6b2f160
+f1: Double = 0.8864014345758762
+Test F1 Score = 0.8864014345758762
+Confusion Matrix:
++-----+----------+-----+
+|label|prediction|count|
++-----+----------+-----+
+|    1|       0.0| 9890|
+|    0|       0.0|52483|
+|    1|       1.0|93620|
+|    0|       1.0| 8869|
++-----+----------+-----+
+
+train_predictions: org.apache.spark.sql.DataFrame = [imsi: string, station: string ... 5 more fields]
+train_auc: Double = 0.9531427592389483
+Train AUC = 0.9531427592389483
+Test AUC  = 0.9530391638701299
+import org.apache.spark.sql.expressions.Window
+import org.apache.spark.ml.feature.VectorAssembler
+import org.apache.spark.ml.classification.GBTClassifier
+import org.apache.spark.sql.functions._
+import org.apache.spark.ml.linalg.Vector
+import org.apache.spark.sql.functions.udf
+
+//import org.apache.spark.ml.functions.vector_to_array
+
+val prob_class_1=udf((v: Vector) => v(1))
+
+val predictions ={
+  full_predicitions
+    //model.transform(testDF)
+    .withColumn(
+      "conversion_probability",
+      prob_class_1(col("probability"))
+        //col("probability").getItem(1)
+    )
+    .select("imsi","station","conversion_probability")}
+val bucketed_predictions ={
+  predictions.withColumn(
+    "classification",
+    when(col("conversion_probability") >= 0.7, "High")
+      .when(col("conversion_probability") >= 0.4, "Medium")
+      .otherwise("Low")
+  )
+}
+
+bucketed_predictions.printSchema()
+bucketed_predictions.repartition(1).write.mode("overwrite").option("header",true).csv("16march_metro_5km")
